@@ -135,6 +135,57 @@
 </style>
 </head>
 <body>
+<div id="lockScreen" style="
+  position:fixed;inset:0;z-index:9999;
+  background:#0a0e1a;
+  display:flex;align-items:center;justify-content:center;
+  background-image:radial-gradient(ellipse at 20% 50%, rgba(0,229,255,0.05) 0%, transparent 60%),
+                   radial-gradient(ellipse at 80% 20%, rgba(124,58,237,0.07) 0%, transparent 50%);
+">
+  <div style="
+    background:#111827;border:1px solid #1e2d45;border-radius:16px;
+    padding:2.5rem;width:100%;max-width:380px;text-align:center;
+  ">
+    <div style="font-size:2rem;margin-bottom:0.5rem">🔐</div>
+    <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:#00e5ff;letter-spacing:-0.02em;margin-bottom:0.25rem">MAU Dashboard</div>
+    <div style="font-family:'DM Mono',monospace;font-size:0.7rem;color:#64748b;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2rem">Acceso restringido</div>
+    <input id="pwdInput" type="password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')checkPassword()" style="
+      width:100%;font-family:'DM Mono',monospace;font-size:0.85rem;
+      background:#1a2234;border:1px solid #1e2d45;border-radius:8px;
+      color:#e2e8f0;padding:0.75rem 1rem;outline:none;
+      text-align:center;letter-spacing:0.15em;margin-bottom:0.75rem;
+      box-sizing:border-box;transition:border-color 0.2s;
+    ">
+    <div id="pwdError" style="font-family:'DM Mono',monospace;font-size:0.7rem;color:#f87171;margin-bottom:0.75rem;min-height:1rem"></div>
+    <button onclick="checkPassword()" style="
+      width:100%;font-family:'Syne',sans-serif;font-weight:700;font-size:0.85rem;
+      background:#00e5ff;color:#0a0e1a;border:none;border-radius:8px;
+      padding:0.75rem;cursor:pointer;transition:all 0.15s;letter-spacing:0.03em;
+    " onmouseover="this.style.background='#33eaff'" onmouseout="this.style.background='#00e5ff'">
+      Entrar
+    </button>
+  </div>
+</div>
+
+<script>
+function checkPassword() {
+  const val = document.getElementById('pwdInput').value;
+  if (val === 'Marketeam2026') {
+    document.getElementById('lockScreen').style.display = 'none';
+    loadFromSheet();
+  } else {
+    const err = document.getElementById('pwdError');
+    err.textContent = 'Contraseña incorrecta, intenta de nuevo';
+    document.getElementById('pwdInput').value = '';
+    document.getElementById('pwdInput').style.borderColor = '#f87171';
+    setTimeout(() => {
+      err.textContent = '';
+      document.getElementById('pwdInput').style.borderColor = '#1e2d45';
+    }, 2500);
+  }
+}
+</script>
+
 
 <header>
   <h1>MAU Dashboard</h1>
@@ -553,8 +604,7 @@ function clearAll() {
 }
 
 
-// Auto-load on page open
-window.addEventListener('DOMContentLoaded', () => loadFromSheet());
+// Auto-load handled by password screen
 </script>
 </body>
 </html>
