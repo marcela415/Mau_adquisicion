@@ -82,6 +82,23 @@
   table.comp tr:hover td{background:rgba(0,229,255,.03);}
   table.comp .total-row td{color:var(--accent);font-weight:600;border-top:1px solid var(--border);background:rgba(0,229,255,.04);}
   .delta-pos{color:#10b981;} .delta-neg{color:#f87171;} .delta-neu{color:var(--muted);}
+  table.comp th.day-sep { border-left: 2px solid var(--accent) !important; }
+  table.comp td.day-sep { border-left: 2px solid rgba(0,229,255,0.25) !important; }
+  table.comp th.month-a { background: var(--surface2); }
+  table.comp th.month-b { background: #162030; }
+  table.comp td.month-a { background: transparent; }
+  table.comp td.month-b { background: rgba(255,255,255,0.02); }
+  table.comp th.th-day-label { 
+    background: rgba(0,229,255,0.08); color: var(--accent); 
+    font-size: .7rem; letter-spacing:.08em;
+  }
+  table.comp th.col-summary { background: rgba(124,58,237,0.15); color: #a78bfa; }
+  table.comp td.col-summary { background: rgba(124,58,237,0.06); }
+  .month-chip {
+    display:inline-block; padding:.1rem .45rem; border-radius:4px;
+    font-size:.6rem; letter-spacing:.06em; margin-right:.2rem;
+    font-weight:600;
+  }
   .badge-day{display:inline-block;font-family:'DM Mono',monospace;font-size:.63rem;padding:.15rem .5rem;
     border-radius:99px;background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.2);
     color:var(--muted);margin:.15rem;cursor:pointer;transition:all .15s;}
@@ -552,70 +569,148 @@ function buildTable() {
   const topN=parseInt(document.getElementById('tableTopN').value);
   const days=[...selectedDays].sort((a,b)=>a-b);
   const months=[...new Set(allRows.map(r=>r.fecha.slice(0,7)))].sort();
+  const multiDay = days.length > 1;
 
-  // Build column headers
-  const cols=[];
-  days.forEach(d=>months.forEach(m=>{
-    const[y,mo]=m.split('-');
-    cols.push({day:d,month:m,label:`${MONTH_NAMES[parseInt(mo)]} ${y} · d${String(d).padStart(2,'0')}`,key:`${m}_${d}`});
-  }));
+  // Month colors alternating
+  const monthColor = {};
+  months.forEach((m,i) => monthColor[m] = i%2===0 ? 'month-a' : 'month-b');
 
-  // Aggregate
+  // Cols: group by month (each month = sum of selected days)
+  // Also keep per-day cols for detail
+  // Structure: if multiDay → show month subtotals per month + vs col
+  //            if single day → show one col per month + vs col
+
+  // Aggregate raw: cat -> month -> day -> value
   const agg={};
   allRows.forEach(r=>{
     const d=parseInt(r.fecha.slice(8,10));
     const m=r.fecha.slice(0,7);
     if(!days.includes(d)) return;
-    const cat=r[groupKey], key=`${m}_${d}`;
+    const cat=r[groupKey];
     if(!agg[cat]) agg[cat]={};
-    agg[cat][key]=(agg[cat][key]||0)+r.value;
+    if(!agg[cat][m]) agg[cat][m]={};
+    agg[cat][m][d]=(agg[cat][m][d]||0)+r.value;
   });
 
+  // Top N by grand total
   const sorted=Object.entries(agg)
-    .map(([cat,vals])=>({cat,total:Object.values(vals).reduce((s,v)=>s+v,0),vals}))
+    .map(([cat,byMonth])=>{
+      const total=Object.values(byMonth).reduce((s,dm)=>s+Object.values(dm).reduce((a,b)=>a+b,0),0);
+      return {cat,total,byMonth};
+    })
     .sort((a,b)=>b.total-a.total).slice(0,topN);
 
-  // Header
-  let hRow='<tr><th>Categoría</th>';
-  cols.forEach(c=>hRow+=`<th>${c.label}</th>`);
-  if(cols.length>1) hRow+='<th>Total</th><th>vs anterior</th>';
-  hRow+='</tr>';
-  document.getElementById('compHead').innerHTML=hRow;
+  // Helper: get month total for a cat
+  const monthTotal=(byMonth,m)=>days.reduce((s,d)=>s+(byMonth[m]?byMonth[m][d]||0:0),0);
 
-  // Body
-  const colTotals={};
-  let html='';
-  sorted.forEach(({cat,vals})=>{
-    html+='<tr><td>'+cat+'</td>';
-    const colVals=cols.map(c=>vals[c.key]||0);
-    colVals.forEach((v,i)=>{
-      colTotals[cols[i].key]=(colTotals[cols[i].key]||0)+v;
-      html+=`<td>${v.toLocaleString('es-CL')}</td>`;
+  // ── HEADER ──
+  // Row 1: day labels (if multiDay) spanning months
+  // Row 2: month columns
+  let head='';
+
+  if(multiDay){
+    // Row 1: "DÍAS: d01, d02, d03" label + month spans
+    head+='<tr><th rowspan="2" style="vertical-align:middle">Categoría</th>';
+    months.forEach((m,mi)=>{
+      const[y,mo]=m.split('-');
+      const sepClass=mi===0?'':' day-sep';
+      const mColor=monthColor[m];
+      head+=`<th colspan="${days.length+1}" class="th-day-label${sepClass}" style="text-align:center">`;
+      head+=`<span class="month-chip" style="background:rgba(0,229,255,0.15);color:var(--accent)">${MONTH_NAMES[parseInt(mo)]} ${y}</span>`;
+      head+=`</th>`;
     });
-    if(cols.length>1){
-      const total=colVals.reduce((s,v)=>s+v,0);
-      const last=colVals[colVals.length-1], prev=colVals[colVals.length-2];
-      const delta=prev>0?Math.round((last-prev)/prev*100):null;
-      const cls=delta===null?'delta-neu':delta>0?'delta-pos':'delta-neg';
-      html+=`<td>${total.toLocaleString('es-CL')}</td>`;
-      html+=`<td class="${cls}">${delta!==null?(delta>0?'+':'')+delta+'%':'—'}</td>`;
+    head+='<th colspan="2" class="col-summary" style="text-align:center">Resumen</th></tr>';
+    // Row 2: per-day cols + subtotal per month
+    head+='<tr>';
+    months.forEach((m,mi)=>{
+      const mColor=monthColor[m];
+      days.forEach((d,di)=>{
+        const sepClass=(mi>0&&di===0)?' day-sep':'';
+        head+=`<th class="${mColor}${sepClass}">d${String(d).padStart(2,'0')}</th>`;
+      });
+      head+=`<th class="${mColor}" style="color:#a78bfa;font-size:.65rem">Σ mes</th>`;
+    });
+    head+='<th class="col-summary">Total</th><th class="col-summary">vs mes ant.</th></tr>';
+  } else {
+    // Single day: one col per month
+    head+='<tr><th>Categoría</th>';
+    months.forEach((m,mi)=>{
+      const[y,mo]=m.split('-');
+      const sepClass=mi===0?'':' day-sep';
+      const mColor=monthColor[m];
+      head+=`<th class="${mColor}${sepClass}">${MONTH_NAMES[parseInt(mo)]} ${y}<br><span style="color:var(--accent);font-size:.65rem">d${String(days[0]).padStart(2,'0')}</span></th>`;
+    });
+    head+='<th class="col-summary">Total</th><th class="col-summary">vs mes ant.</th></tr>';
+  }
+  document.getElementById('compHead').innerHTML=head;
+
+  // ── BODY ──
+  const colTotals={}; // month -> total
+  months.forEach(m=>colTotals[m]=0);
+  const colTotalsByDay={}; // month_day -> total
+  let html='';
+
+  sorted.forEach(({cat,byMonth})=>{
+    html+='<tr><td>'+cat+'</td>';
+    if(multiDay){
+      months.forEach((m,mi)=>{
+        const mColor=monthColor[m];
+        days.forEach((d,di)=>{
+          const v=byMonth[m]?byMonth[m][d]||0:0;
+          const sepClass=(mi>0&&di===0)?' day-sep':'';
+          const key=`${m}_${d}`;
+          colTotalsByDay[key]=(colTotalsByDay[key]||0)+v;
+          html+=`<td class="${mColor}${sepClass}">${v?v.toLocaleString('es-CL'):'<span style="color:var(--muted)">0</span>'}</td>`;
+        });
+        const mSum=monthTotal(byMonth,m);
+        colTotals[m]=(colTotals[m]||0)+mSum;
+        html+=`<td class="${mColor}" style="color:#a78bfa;font-weight:600">${mSum.toLocaleString('es-CL')}</td>`;
+      });
+    } else {
+      months.forEach((m,mi)=>{
+        const mColor=monthColor[m];
+        const sepClass=mi===0?'':' day-sep';
+        const v=monthTotal(byMonth,m);
+        colTotals[m]=(colTotals[m]||0)+v;
+        html+=`<td class="${mColor}${sepClass}">${v?v.toLocaleString('es-CL'):'<span style="color:var(--muted)">0</span>'}</td>`;
+      });
     }
+    // Summary cols
+    const grand=months.reduce((s,m)=>s+monthTotal(byMonth,m),0);
+    const lastM=months[months.length-1], prevM=months[months.length-2];
+    const lastV=monthTotal(byMonth,lastM), prevV=monthTotal(byMonth,prevM||'');
+    const delta=prevV>0?Math.round((lastV-prevV)/prevV*100):null;
+    const cls=delta===null?'delta-neu':delta>0?'delta-pos':'delta-neg';
+    html+=`<td class="col-summary">${grand.toLocaleString('es-CL')}</td>`;
+    html+=`<td class="col-summary ${cls}">${delta!==null?(delta>0?'+':'')+delta+'%':'—'}</td>`;
     html+='</tr>';
   });
 
   // Totals row
   if(sorted.length){
     html+='<tr class="total-row"><td>TOTAL</td>';
-    const totVals=cols.map(c=>colTotals[c.key]||0);
-    totVals.forEach(v=>html+=`<td>${v.toLocaleString('es-CL')}</td>`);
-    if(cols.length>1){
-      const grand=totVals.reduce((s,v)=>s+v,0);
-      const last=totVals[totVals.length-1], prev=totVals[totVals.length-2];
-      const delta=prev>0?Math.round((last-prev)/prev*100):null;
-      const cls=delta===null?'delta-neu':delta>0?'delta-pos':'delta-neg';
-      html+=`<td>${grand.toLocaleString('es-CL')}</td>`;
-      html+=`<td class="${cls}">${delta!==null?(delta>0?'+':'')+delta+'%':'—'}</td>`;
+    if(multiDay){
+      months.forEach((m,mi)=>{
+        days.forEach((d,di)=>{
+          const key=`${m}_${d}`;
+          const v=colTotalsByDay[key]||0;
+          const sepClass=(mi>0&&di===0)?' day-sep':'';
+          html+=`<td class="${sepClass}">${v.toLocaleString('es-CL')}</td>`;
+        });
+        html+=`<td style="color:#a78bfa;font-weight:700">${(colTotals[m]||0).toLocaleString('es-CL')}</td>`;
+      });
+    } else {
+      months.forEach((m,mi)=>{
+        const sepClass=mi===0?'':' day-sep';
+        html+=`<td class="${sepClass}">${(colTotals[m]||0).toLocaleString('es-CL')}</td>`;
+      });
     }
+    const grand=months.reduce((s,m)=>s+(colTotals[m]||0),0);
+    const lastM=months[months.length-1], prevM=months[months.length-2];
+    const delta=(colTotals[prevM]||0)>0?Math.round(((colTotals[lastM]||0)-(colTotals[prevM]||0))/(colTotals[prevM]||0)*100):null;
+    const cls=delta===null?'delta-neu':delta>0?'delta-pos':'delta-neg';
+    html+=`<td class="col-summary">${grand.toLocaleString('es-CL')}</td>`;
+    html+=`<td class="col-summary ${cls}">${delta!==null?(delta>0?'+':'')+delta+'%':'—'}</td>`;
     html+='</tr>';
   }
   document.getElementById('compBody').innerHTML=html;
