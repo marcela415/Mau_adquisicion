@@ -276,7 +276,7 @@
 </div>
 
 <script>
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR1lJaS1vpAoIk6uubIOZl4D115uL6O5osbVzl5VFMevFA-gZBFAGpO2F6Q92XWOe9GXARReNJhKPV4/pub?gid=0&single=true&output=csv';
+const SHEET_URL = 'https://script.google.com/a/macros/destacame.cl/s/AKfycbyQ7P0y2zXasQJp8ZO7w5LVAoeMmvzsnHoSVNffHQ-YaLaBK2XgbyEtqq1ZIzyrTAfVAQ/exec';
 
 let allRows = [];
 let chartSource = null;
@@ -488,18 +488,15 @@ async function loadFromSheet() {
   text.style.color      = '#f59e0b';
   text.textContent      = 'Cargando desde Google Sheets...';
   try {
-    // Try direct fetch first, fallback to CORS proxy
-    let csv;
-    try {
-      const res = await fetch(SHEET_URL);
-      if (!res.ok) throw new Error('direct failed');
-      csv = await res.text();
-    } catch {
-      const proxy = 'https://corsproxy.io/?' + encodeURIComponent(SHEET_URL);
-      const res2 = await fetch(proxy);
-      if (!res2.ok) throw new Error('No se pudo conectar a Google Sheets');
-      csv = await res2.text();
-    }
+    // Fetch JSON from Apps Script
+    const res = await fetch(SHEET_URL, { redirect: 'follow' });
+    if (!res.ok) throw new Error('No se pudo conectar al servidor. Asegúrate de estar con tu cuenta @destacame.cl');
+    const json = await res.json();
+    if (!Array.isArray(json) || json.length === 0) throw new Error('No se recibieron datos. Verifica el Apps Script.');
+    // Convert JSON array to CSV string for parseData
+    const headers = Object.keys(json[0]).join(',');
+    const rows = json.map(r => Object.values(r).join(','));
+    const csv = [headers, ...rows].join('\n');
     allRows = parseData(csv);
     populateYearFilter(allRows);
     document.getElementById('filterYear').value  = '';
