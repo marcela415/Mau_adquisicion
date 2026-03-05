@@ -165,6 +165,42 @@
       Entrar
     </button>
   </div>
+
+    <!-- ── COMPARISON TABLE ── -->
+    <div class="panel table-panel" id="compTablePanel" style="display:none">
+      <div class="panel-label">📊 Comparación día vs mes</div>
+
+      <div class="table-controls">
+        <div class="control-group">
+          <label>Agrupar por</label>
+          <select id="tableGroupBy" onchange="buildTable()">
+            <option value="utm_source">UTM Source</option>
+            <option value="utm_campaign">UTM Campaign</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Días a comparar</label>
+          <div id="dayBadges" style="display:flex;flex-wrap:wrap;gap:0.3rem;max-width:600px"></div>
+        </div>
+        <div class="control-group">
+          <label>Top N</label>
+          <select id="tableTopN" onchange="buildTable()">
+            <option value="10">Top 10</option>
+            <option value="5">Top 5</option>
+            <option value="20">Top 20</option>
+            <option value="999">Todos</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="comp" id="compTable">
+          <thead id="compHead"></thead>
+          <tbody id="compBody"></tbody>
+        </table>
+      </div>
+    </div>
+
 </div>
 
 <script>
@@ -324,6 +360,42 @@ function checkPassword() {
     </div>
 
   </div>
+
+    <!-- ── COMPARISON TABLE ── -->
+    <div class="panel table-panel" id="compTablePanel" style="display:none">
+      <div class="panel-label">📊 Comparación día vs mes</div>
+
+      <div class="table-controls">
+        <div class="control-group">
+          <label>Agrupar por</label>
+          <select id="tableGroupBy" onchange="buildTable()">
+            <option value="utm_source">UTM Source</option>
+            <option value="utm_campaign">UTM Campaign</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Días a comparar</label>
+          <div id="dayBadges" style="display:flex;flex-wrap:wrap;gap:0.3rem;max-width:600px"></div>
+        </div>
+        <div class="control-group">
+          <label>Top N</label>
+          <select id="tableTopN" onchange="buildTable()">
+            <option value="10">Top 10</option>
+            <option value="5">Top 5</option>
+            <option value="20">Top 20</option>
+            <option value="999">Todos</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="comp" id="compTable">
+          <thead id="compHead"></thead>
+          <tbody id="compBody"></tbody>
+        </table>
+      </div>
+    </div>
+
 </div>
 
 <script>
@@ -530,6 +602,8 @@ function applyFilters() {
   // Update avg label dynamically
   document.querySelector('#statAvg + .stat-label') && (document.querySelectorAll('.stat-label')[3].textContent = granularity === 'month' ? 'Promedio / mes' : 'Promedio / día');
   updatePills();
+  initDayBadges();
+  buildTable();
 }
 
 async function loadFromSheet() {
@@ -603,6 +677,121 @@ function clearAll() {
   updatePills();
 }
 
+
+
+/* ── COMPARISON TABLE ── */
+let selectedDays = new Set([1]);
+
+function initDayBadges() {
+  if (allRows.length === 0) return;
+  const days = [...new Set(allRows.map(r => parseInt(r.fecha.slice(8,10))))].sort((a,b)=>a-b);
+  const container = document.getElementById('dayBadges');
+  container.innerHTML = '';
+  days.forEach(d => {
+    const el = document.createElement('span');
+    el.className = 'badge-day' + (selectedDays.has(d) ? ' active' : '');
+    el.textContent = d;
+    el.onclick = () => {
+      if (selectedDays.has(d)) { if (selectedDays.size > 1) selectedDays.delete(d); }
+      else selectedDays.add(d);
+      el.classList.toggle('active', selectedDays.has(d));
+      buildTable();
+    };
+    container.appendChild(el);
+  });
+}
+
+function buildTable() {
+  if (allRows.length === 0) return;
+  document.getElementById('compTablePanel').style.display = 'block';
+
+  const groupKey = document.getElementById('tableGroupBy').value;
+  const topN     = parseInt(document.getElementById('tableTopN').value);
+  const days     = [...selectedDays].sort((a,b)=>a-b);
+
+  // Get months present in data
+  const months = [...new Set(allRows.map(r => r.fecha.slice(0,7)))].sort();
+
+  // Build columns: for each (day, month) combo
+  const cols = [];
+  days.forEach(d => months.forEach(m => {
+    const [y, mo] = m.split('-');
+    cols.push({ day: d, month: m, label: `${MONTH_NAMES[parseInt(mo)]} ${y} · d${d}` });
+  }));
+
+  // Aggregate data
+  const agg = {}; // cat -> col_key -> value
+  allRows.forEach(r => {
+    const d = parseInt(r.fecha.slice(8,10));
+    const m = r.fecha.slice(0,7);
+    if (!days.includes(d)) return;
+    const cat = r[groupKey];
+    const key = `${m}_${d}`;
+    if (!agg[cat]) agg[cat] = {};
+    agg[cat][key] = (agg[cat][key] || 0) + r.value;
+  });
+
+  // Top N by total
+  const sorted = Object.entries(agg)
+    .map(([cat, vals]) => ({ cat, total: Object.values(vals).reduce((s,v)=>s+v,0), vals }))
+    .sort((a,b) => b.total - a.total)
+    .slice(0, topN);
+
+  // Build header
+  const thead = document.getElementById('compHead');
+  let hRow = '<tr><th>Categoría</th>';
+  cols.forEach(c => hRow += `<th>${c.label}</th>`);
+  if (cols.length > 1) hRow += '<th>Total</th><th>vs anterior</th>';
+  hRow += '</tr>';
+  thead.innerHTML = hRow;
+
+  // Build body
+  const tbody = document.getElementById('compBody');
+  let html = '';
+  const colTotals = {};
+
+  sorted.forEach(({ cat, vals }) => {
+    html += '<tr>';
+    html += `<td>${cat}</td>`;
+    const colVals = cols.map(c => vals[`${c.month}_${c.day}`] || 0);
+    colVals.forEach((v, i) => {
+      const key = `${cols[i].month}_${cols[i].day}`;
+      colTotals[key] = (colTotals[key] || 0) + v;
+      html += `<td>${v.toLocaleString('es-CL')}</td>`;
+    });
+    if (cols.length > 1) {
+      const total = colVals.reduce((s,v)=>s+v,0);
+      const last  = colVals[colVals.length-1];
+      const prev  = colVals[colVals.length-2];
+      const delta = prev > 0 ? Math.round((last-prev)/prev*100) : null;
+      const cls   = delta === null ? 'delta-neu' : delta > 0 ? 'delta-pos' : delta < 0 ? 'delta-neg' : 'delta-neu';
+      const sign  = delta > 0 ? '+' : '';
+      html += `<td>${total.toLocaleString('es-CL')}</td>`;
+      html += `<td class="${cls}">${delta !== null ? sign+delta+'%' : '—'}</td>`;
+    }
+    html += '</tr>';
+  });
+
+  // Totals row
+  if (sorted.length > 0) {
+    html += '<tr class="total-row"><td>TOTAL</td>';
+    const totVals = cols.map(c => colTotals[`${c.month}_${c.day}`] || 0);
+    totVals.forEach(v => html += `<td>${v.toLocaleString('es-CL')}</td>`);
+    if (cols.length > 1) {
+      const grand = totVals.reduce((s,v)=>s+v,0);
+      const last  = totVals[totVals.length-1];
+      const prev  = totVals[totVals.length-2];
+      const delta = prev > 0 ? Math.round((last-prev)/prev*100) : null;
+      const cls   = delta === null ? 'delta-neu' : delta > 0 ? 'delta-pos' : delta < 0 ? 'delta-neg' : 'delta-neu';
+      const sign  = delta > 0 ? '+' : '';
+      html += `<td>${grand.toLocaleString('es-CL')}</td>`;
+      html += `<td class="${cls}">${delta !== null ? sign+delta+'%' : '—'}</td>`;
+    }
+    html += '</tr>';
+  }
+
+  tbody.innerHTML = html;
+}
 
 // Auto-load handled by password screen
 </script>
