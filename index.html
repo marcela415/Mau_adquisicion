@@ -597,6 +597,22 @@ function buildTable() {
   tbody.innerHTML = html;
 }
 
+function checkPassword() {
+  const val = document.getElementById('pwdInput').value;
+  if (val === 'Marketeam2026') {
+    document.getElementById('lockScreen').style.display = 'none';
+    loadFromSheet();
+  } else {
+    const err = document.getElementById('pwdError');
+    err.textContent = 'Contraseña incorrecta, intenta de nuevo';
+    document.getElementById('pwdInput').value = '';
+    document.getElementById('pwdInput').style.borderColor = '#f87171';
+    setTimeout(() => {
+      err.textContent = '';
+      document.getElementById('pwdInput').style.borderColor = '#1e2d45';
+    }, 2500);
+  }
+}
 // Auto-load handled by password screen
 </script>
 </body>
