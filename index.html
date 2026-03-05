@@ -147,18 +147,22 @@
   <div class="sidebar">
 
     <div class="panel">
-      <div class="panel-label">① Pega tus datos</div>
+      <div class="panel-label">① Fuente de datos</div>
       <div class="input-instructions">
-        Formato esperado (tabs o comas):<br>
-        <code>fecha · utm_source · utm_campaign · nuevos_usuarios</code>
+        Conectado a <code>Google Sheets</code><br>
+        Los datos se cargan automáticamente al abrir.
       </div>
-      <textarea id="rawData" placeholder="fecha_registro	utm_source	utm_campaign	nuevos_usuarios
-2026-01-01	google	brand_search	150
-..."></textarea>
+      <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.85rem">
+        <div id="sheetStatus" style="width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background 0.3s"></div>
+        <span id="sheetStatusText" style="font-family:'DM Mono',monospace;font-size:0.7rem;color:var(--muted)">Cargando...</span>
+      </div>
       <div class="btn-row">
-        <button class="btn-primary" onclick="processData()">▶ Generar</button>
-        <button class="btn-secondary" onclick="loadSample()">Ejemplo</button>
+        <button class="btn-primary" onclick="loadFromSheet()">↻ Actualizar datos</button>
         <button class="btn-secondary" onclick="clearAll()">Limpiar</button>
+      </div>
+      <div style="margin-top:1rem">
+        <div class="panel-label" style="margin-bottom:0.3rem">Última actualización</div>
+        <div id="lastUpdate" style="font-family:'DM Mono',monospace;font-size:0.7rem;color:var(--muted)">—</div>
       </div>
     </div>
 
@@ -272,6 +276,8 @@
 </div>
 
 <script>
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR1lJaS1vpAoIk6uubIOZl4D115uL6O5osbVzl5VFMevFA-gZBFAGpO2F6Q92XWOe9GXARReNJhKPV4/pub?gid=0&single=true&output=csv';
+
 let allRows = [];
 let chartSource = null;
 let chartCampaign = null;
@@ -475,19 +481,40 @@ function applyFilters() {
   updatePills();
 }
 
-function processData() {
-  const raw = document.getElementById('rawData').value;
-  if (!raw.trim()) { showError('Pega tus datos primero.'); return; }
+async function loadFromSheet() {
+  const dot  = document.getElementById('sheetStatus');
+  const text = document.getElementById('sheetStatusText');
+  dot.style.background  = '#f59e0b';
+  text.style.color      = '#f59e0b';
+  text.textContent      = 'Cargando desde Google Sheets...';
   try {
-    allRows = parseData(raw);
+    const res = await fetch(SHEET_URL);
+    if (!res.ok) throw new Error('No se pudo conectar a Google Sheets');
+    const csv = await res.text();
+    allRows = parseData(csv);
     populateYearFilter(allRows);
     document.getElementById('filterYear').value  = '';
     document.getElementById('filterMonth').value = '';
     document.getElementById('dateFrom').value    = '';
     document.getElementById('dateTo').value      = '';
+    granularity = 'day';
+    document.getElementById('btnDay').classList.add('active');
+    document.getElementById('btnMonth').classList.remove('active');
+    document.getElementById('filterMonth').disabled = false;
     applyFilters();
-    showStatus(`${allRows.length} filas procesadas correctamente`);
-  } catch(e) { showError(e.message); }
+    dot.style.background  = '#10b981';
+    text.style.color      = '#10b981';
+    text.textContent      = `${allRows.length} filas cargadas ✓`;
+    const now = new Date();
+    document.getElementById('lastUpdate').textContent =
+      now.toLocaleDateString('es-CL') + ' ' + now.toLocaleTimeString('es-CL', {hour:'2-digit',minute:'2-digit'});
+    showStatus(`${allRows.length} filas cargadas desde Google Sheets`);
+  } catch(e) {
+    dot.style.background  = '#f87171';
+    text.style.color      = '#f87171';
+    text.textContent      = 'Error al cargar ✗';
+    showError(e.message);
+  }
 }
 
 function switchTab(name, btn) {
@@ -512,42 +539,16 @@ function clearAll() {
   ['filterMonth','dateFrom','dateTo'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('errorBar').style.display  = 'none';
   document.getElementById('statusBar').style.display = 'none';
+  document.getElementById('sheetStatus').style.background = 'var(--muted)';
+  document.getElementById('sheetStatusText').style.color = 'var(--muted)';
+  document.getElementById('sheetStatusText').textContent = 'Sin datos';
+  document.getElementById('lastUpdate').textContent = '—';
   updatePills();
 }
 
-function loadSample() {
-  document.getElementById('rawData').value = `fecha_registro\tutm_source\tutm_campaign\tnuevos_usuarios
-2026-01-01\tgoogle\tbrand_search\t150
-2026-01-01\tfacebook\tretargeting\t80
-2026-01-01\tsin_atribucion\tsin_atribucion\t200
-2026-01-01\tinstagram\tprospecting\t45
-2026-01-02\tgoogle\tbrand_search\t175
-2026-01-02\tfacebook\tretargeting\t95
-2026-01-02\tsin_atribucion\tsin_atribucion\t220
-2026-01-02\tinstagram\tprospecting\t60
-2026-01-03\tgoogle\tbrand_search\t190
-2026-01-03\tfacebook\tretargeting\t110
-2026-01-03\tsin_atribucion\tsin_atribucion\t240
-2026-01-03\tinstagram\tprospecting\t70
-2026-01-03\temail\tnewsletter\t35
-2026-02-01\tgoogle\tbrand_search\t210
-2026-02-01\tfacebook\tretargeting\t130
-2026-02-01\tsin_atribucion\tsin_atribucion\t280
-2026-02-01\tinstagram\tprospecting\t90
-2026-02-01\temail\tnewsletter\t50
-2026-02-02\tgoogle\tbrand_search\t195
-2026-02-02\tfacebook\tretargeting\t115
-2026-02-02\tsin_atribucion\tsin_atribucion\t260
-2026-02-02\tinstagram\tprospecting\t75
-2026-02-02\temail\tnewsletter\t42
-2026-02-03\tgoogle\tbrand_search\t230
-2026-02-03\tfacebook\tretargeting\t140
-2026-02-03\tsin_atribucion\tsin_atribucion\t300
-2026-02-03\tinstagram\tprospecting\t100
-2026-02-03\temail\tnewsletter\t60
-2026-02-03\torganic\torganic\t80`;
-  processData();
-}
+
+// Auto-load on page open
+window.addEventListener('DOMContentLoaded', () => loadFromSheet());
 </script>
 </body>
 </html>
