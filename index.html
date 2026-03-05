@@ -488,9 +488,18 @@ async function loadFromSheet() {
   text.style.color      = '#f59e0b';
   text.textContent      = 'Cargando desde Google Sheets...';
   try {
-    const res = await fetch(SHEET_URL);
-    if (!res.ok) throw new Error('No se pudo conectar a Google Sheets');
-    const csv = await res.text();
+    // Try direct fetch first, fallback to CORS proxy
+    let csv;
+    try {
+      const res = await fetch(SHEET_URL);
+      if (!res.ok) throw new Error('direct failed');
+      csv = await res.text();
+    } catch {
+      const proxy = 'https://corsproxy.io/?' + encodeURIComponent(SHEET_URL);
+      const res2 = await fetch(proxy);
+      if (!res2.ok) throw new Error('No se pudo conectar a Google Sheets');
+      csv = await res2.text();
+    }
     allRows = parseData(csv);
     populateYearFilter(allRows);
     document.getElementById('filterYear').value  = '';
