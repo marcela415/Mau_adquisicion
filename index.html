@@ -68,6 +68,20 @@
     color:var(--muted);transition:all .15s;letter-spacing:.02em;}
   .gran-btn.active{background:rgba(0,229,255,.12);border-color:var(--accent);color:var(--accent);}
   .gran-btn:hover:not(.active){border-color:var(--muted);color:var(--text);}
+  /* AVG TABLE */
+  table.avg { width:100%; border-collapse:collapse; font-family:'DM Mono',monospace; font-size:.72rem; }
+  table.avg th { background:var(--surface2); color:var(--muted); font-weight:500; padding:.55rem .85rem;
+    text-align:right; letter-spacing:.06em; border-bottom:1px solid var(--border); white-space:nowrap;
+    text-transform:uppercase; font-size:.63rem; }
+  table.avg th:first-child { text-align:left; }
+  table.avg td { padding:.48rem .85rem; text-align:right; border-bottom:1px solid rgba(30,45,69,.5);
+    color:var(--text); white-space:nowrap; }
+  table.avg td:first-child { text-align:left; color:var(--muted); }
+  table.avg tr:last-child td { border-bottom:none; }
+  table.avg tr:hover td { background:rgba(0,229,255,.03); }
+  table.avg .avg-total-row td { color:var(--accent); font-weight:700; border-top:1px solid var(--border); background:rgba(0,229,255,.04); }
+  table.avg .avg-val { color:#a78bfa; font-weight:600; }
+  table.avg .trend-up { color:#10b981; } table.avg .trend-dn { color:#f87171; } table.avg .trend-neu { color:var(--muted); }
   /* TABLE */
   .table-scroll{overflow-x:auto;border-radius:8px;border:1px solid var(--border);}
   table.comp{width:100%;border-collapse:collapse;font-family:'DM Mono',monospace;font-size:.72rem;}
@@ -262,6 +276,35 @@
       </div>
       <div class="tab-content" id="tab-campaign">
         <div class="chart-wrapper"><canvas id="chartCampaign"></canvas></div>
+      </div>
+    </div>
+
+    <!-- AVG TABLE -->
+    <div class="panel" id="avgTablePanel" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.75rem">
+        <div class="panel-label" style="margin-bottom:0">📈 Promedio diario por mes</div>
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-end">
+          <div class="control-group">
+            <label>Agrupar por</label>
+            <select id="avgGroupBy" onchange="buildAvgTable()">
+              <option value="utm_source">UTM Source</option>
+              <option value="utm_campaign">UTM Campaign</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>Top N</label>
+            <select id="avgTopN" onchange="buildAvgTable()">
+              <option value="10">Top 10</option><option value="5">Top 5</option>
+              <option value="20">Top 20</option><option value="999">Todos</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="avg">
+          <thead id="avgHead"></thead>
+          <tbody id="avgBody"></tbody>
+        </table>
       </div>
     </div>
 
@@ -511,6 +554,7 @@ function applyFilters() {
   updatePills();
   initDayBadges();
   buildTable();
+  buildAvgTable();
 }
 
 /* ── TABS ── */
@@ -537,7 +581,123 @@ function clearAll() {
   document.getElementById('sheetStatusText').textContent='Sin datos';
   document.getElementById('lastUpdate').textContent='—';
   document.getElementById('compTablePanel').style.display='none';
+  document.getElementById('avgTablePanel').style.display='none';
   updatePills();
+}
+
+/* ── AVG DAILY TABLE ── */
+function buildAvgTable() {
+  if (!allRows.length) return;
+  document.getElementById('avgTablePanel').style.display = 'block';
+
+  const groupKey = document.getElementById('avgGroupBy').value;
+  const topN     = parseInt(document.getElementById('avgTopN').value);
+  const months   = [...new Set(allRows.map(r => r.fecha.slice(0,7)))].sort();
+
+  // Month color alternating
+  const monthColor = {};
+  months.forEach((m,i) => monthColor[m] = i%2===0 ? 'month-a' : 'month-b');
+
+  // Aggregate: cat -> month -> { total, days }
+  const agg = {};
+  allRows.forEach(r => {
+    const m   = r.fecha.slice(0,7);
+    const cat = r[groupKey];
+    if (!agg[cat])    agg[cat]    = {};
+    if (!agg[cat][m]) agg[cat][m] = { total: 0, days: new Set() };
+    agg[cat][m].total += r.value;
+    agg[cat][m].days.add(r.fecha);
+  });
+
+  // Grand total per cat for sorting
+  const sorted = Object.entries(agg)
+    .map(([cat, byMonth]) => ({
+      cat,
+      grandTotal: Object.values(byMonth).reduce((s,v) => s + v.total, 0),
+      byMonth
+    }))
+    .sort((a,b) => b.grandTotal - a.grandTotal)
+    .slice(0, topN);
+
+  // Month totals for avg footer
+  const monthTotals = {}, monthDays = {};
+  months.forEach(m => { monthTotals[m] = 0; monthDays[m] = new Set(); });
+  allRows.forEach(r => {
+    const m = r.fecha.slice(0,7);
+    if (monthTotals[m] !== undefined) {
+      monthTotals[m] += r.value;
+      monthDays[m].add(r.fecha);
+    }
+  });
+
+  // ── HEADER ──
+  // Two sub-cols per month: Total mes | Prom/día
+  let head = '<tr><th rowspan="2" style="vertical-align:middle">Categoría</th>';
+  months.forEach((m, mi) => {
+    const [y,mo] = m.split('-');
+    const sep = mi > 0 ? ' day-sep' : '';
+    head += `<th colspan="2" class="th-day-label${sep}" style="text-align:center">
+      <span class="month-chip" style="background:rgba(0,229,255,0.15);color:var(--accent)">${MONTH_NAMES[parseInt(mo)]} ${y}</span>
+    </th>`;
+  });
+  head += '<th colspan="2" class="col-summary" style="text-align:center">Resumen</th></tr>';
+  head += '<tr>';
+  months.forEach((m, mi) => {
+    const mc = monthColor[m];
+    const sep = mi > 0 ? ' day-sep' : '';
+    head += `<th class="${mc}${sep}">Total mes</th>`;
+    head += `<th class="${mc}" style="color:#a78bfa">Prom/día</th>`;
+  });
+  head += '<th class="col-summary">Total</th><th class="col-summary">vs mes ant.</th></tr>';
+  document.getElementById('avgHead').innerHTML = head;
+
+  // ── BODY ──
+  let html = '';
+  sorted.forEach(({ cat, grandTotal, byMonth }) => {
+    html += '<tr><td>' + cat + '</td>';
+    months.forEach((m, mi) => {
+      const mc  = monthColor[m];
+      const sep = mi > 0 ? ' day-sep' : '';
+      const d   = byMonth[m] ? byMonth[m] : { total: 0, days: new Set() };
+      const avg = d.days.size > 0 ? (d.total / d.days.size).toFixed(1) : '—';
+      html += `<td class="${mc}${sep}">${d.total.toLocaleString('es-CL')}</td>`;
+      html += `<td class="${mc} avg-val">${avg}</td>`;
+    });
+    // vs mes anterior (last month avg vs prev month avg)
+    const lastM = months[months.length-1];
+    const prevM = months[months.length-2];
+    const lastAvg = byMonth[lastM] && byMonth[lastM].days.size > 0 ? byMonth[lastM].total / byMonth[lastM].days.size : null;
+    const prevAvg = prevM && byMonth[prevM] && byMonth[prevM].days.size > 0 ? byMonth[prevM].total / byMonth[prevM].days.size : null;
+    const delta = (lastAvg !== null && prevAvg !== null && prevAvg > 0)
+      ? Math.round((lastAvg - prevAvg) / prevAvg * 100) : null;
+    const cls = delta === null ? 'trend-neu' : delta > 0 ? 'trend-up' : 'trend-dn';
+    html += `<td class="col-summary">${grandTotal.toLocaleString('es-CL')}</td>`;
+    html += `<td class="col-summary ${cls}">${delta !== null ? (delta>0?'+':'')+delta+'%' : '—'}</td>`;
+    html += '</tr>';
+  });
+
+  // ── TOTALS ROW ──
+  html += '<tr class="avg-total-row"><td>TOTAL</td>';
+  const lastM = months[months.length-1];
+  const prevM = months[months.length-2];
+  months.forEach((m, mi) => {
+    const sep = mi > 0 ? ' day-sep' : '';
+    const tot = monthTotals[m] || 0;
+    const nDays = monthDays[m] ? monthDays[m].size : 0;
+    const avg = nDays > 0 ? (tot / nDays).toFixed(1) : '—';
+    html += `<td class="${sep}">${tot.toLocaleString('es-CL')}</td>`;
+    html += `<td class="avg-val">${avg}</td>`;
+  });
+  const grandAll = months.reduce((s,m) => s + (monthTotals[m]||0), 0);
+  const lastAvg = monthDays[lastM] && monthDays[lastM].size > 0 ? monthTotals[lastM] / monthDays[lastM].size : null;
+  const prevAvg = prevM && monthDays[prevM] && monthDays[prevM].size > 0 ? monthTotals[prevM] / monthDays[prevM].size : null;
+  const delta = (lastAvg !== null && prevAvg !== null && prevAvg > 0)
+    ? Math.round((lastAvg - prevAvg) / prevAvg * 100) : null;
+  const cls = delta === null ? 'trend-neu' : delta > 0 ? 'trend-up' : 'trend-dn';
+  html += `<td class="col-summary">${grandAll.toLocaleString('es-CL')}</td>`;
+  html += `<td class="col-summary ${cls}">${delta !== null ? (delta>0?'+':'')+delta+'%' : '—'}</td>`;
+  html += '</tr>';
+  document.getElementById('avgBody').innerHTML = html;
 }
 
 /* ── COMPARISON TABLE ── */
